@@ -9,6 +9,9 @@ import { confetti } from '../charts.js';
 import { pickExercises, openExercise, REST_OPTS } from './exercise.js';
 import { plateCalc } from './tools.js';
 import { shareWorkoutImage, shareWorkoutLink } from '../share.js';
+import { queueWorkout, flush } from '../cloud.js';
+import { addWorkoutPhoto } from './history.js';
+import { getPhoto } from '../photos.js';
 
 const restFor = (e) => e.rest ?? state.settings.rest;
 const gridCols = (n, rpe) => `grid-template-columns:32px minmax(40px,1.1fr) repeat(${n},minmax(0,1fr))${rpe ? ' 44px' : ''} 42px`;
@@ -255,6 +258,8 @@ on('finish', async () => {
   stopRest();
   const res = finishActive();
   syncWake();
+  queueWorkout(res.workout.id);
+  flush();
   go('history');
   if (editing) toast('Workout updated', 'check');
   else showSummary(res.workout, res.prs);
@@ -275,7 +280,9 @@ export function showSummary(w, prs) {
     ${prs.length ? `<div class="group-label">Personal records</div>${prs.map((p) => `<div class="pr-line">${icon('trophy')}<b>${esc(exById(p.exId).name)}</b><span>${esc(setText(p.type, p.set))}</span></div>`).join('')}` : ''}
     <div class="group-label">How did it feel?</div>
     <div class="feel">${feels.map((f, i) => `<button data-feel="${i + 1}">${f}</button>`).join('')}</div>
-    <div class="btn-row mt-lg"><button class="btn" data-x="img">${icon('share')} Share card</button><button class="btn" data-x="link">${icon('users')} Send link</button></div>
+    <div class="post-photo" id="sum-photo" hidden></div>
+    <button class="btn block mt-lg" data-x="photo">${icon('camera')} Add a gym photo</button>
+    <div class="btn-row mt"><button class="btn" data-x="img">${icon('share')} Share card</button><button class="btn" data-x="link">${icon('users')} Send link</button></div>
     <button class="btn primary block mt" data-act="close-sheet">Done</button>`);
   confetti();
   buzz([30, 60, 30]);
@@ -287,6 +294,12 @@ export function showSummary(w, prs) {
       return;
     }
     const x = e.target.closest('[data-x]');
+    if (x?.dataset.x === 'photo') {
+      addWorkoutPhoto(w).then(async (ok) => {
+        const src = ok && (await getPhoto(w.id)), el = body.querySelector('#sum-photo');
+        if (src && el) { el.innerHTML = `<img src="${src}" alt="">`; el.hidden = false; x.innerHTML = `${icon('camera')} Change photo`; rerender(); }
+      });
+    }
     if (x?.dataset.x === 'img') shareWorkoutImage(w, prs);
     if (x?.dataset.x === 'link') shareWorkoutLink(w);
   });

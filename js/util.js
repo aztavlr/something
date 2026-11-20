@@ -94,3 +94,20 @@ export function download(filename, text, type = 'application/json') {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
+
+/** "now", "5m", "3h", "4d", "2w", then a date */
+export function fmtAgo(t) {
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 60) return 'now';
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 86400 * 7) return `${Math.floor(s / 86400)}d`;
+  if (s < 86400 * 35) return `${Math.floor(s / 604800)}w`;
+  return fmtDate(t, { month: 'short', day: 'numeric' });
+}
+/** "just now", "5m ago", "3d ago", or "on Nov 3" */
+export const agoText = (t) => { const a = fmtAgo(t); return a === 'now' ? 'just now' : /^\d+[mhdw]$/.test(a) ? `${a} ago` : `on ${a}`; };
+/** local calendar day as YYYY-MM-DD, and back to a local midnight timestamp */
+export const ymd = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+export const fromYmd = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d).getTime(); };
+export const handleOf = (name) => String(name || '').toLowerCase().replace(/\u0111/g, 'd').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9_.]/g, '').slice(0, 24);

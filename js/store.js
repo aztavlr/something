@@ -9,13 +9,13 @@ export const MI = 1.609344; // km per mile
 
 export const DEFAULT_SETTINGS = {
   unit: 'kg', rest: 90, autoRest: true, sound: true, vibrate: true, wakeLock: true,
-  showRpe: false, weeklyGoal: 3, weekStart: 1, theme: 'dark', accent: 'ember', bar: 20, onboarded: false,
+  showRpe: false, weeklyGoal: 3, weekStart: 1, theme: 'dark', accent: 'gold', bar: 20, onboarded: false, sex: '',
 };
 
 function fresh() {
   return {
     v: 2,
-    profile: { name: '', avatar: '💪', created: Date.now() },
+    profile: { name: '', handle: '', bio: '', avatar: '💪', photo: '', created: Date.now() },
     settings: { ...DEFAULT_SETTINGS },
     exercises: DEFAULT_EXERCISES.map((e) => ({ ...e })),
     routines: [], workouts: [], body: [], active: null,

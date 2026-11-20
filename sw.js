@@ -1,13 +1,14 @@
 // Offline support. Network-first with a short timeout (fresh updates when online,
 // instant cached app in a gym basement with bad signal), cache fallback when offline.
-const CACHE = 'ironlog-v2.0.0';
+const CACHE = 'ironlog-v2.1.0';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
-  'css/base.css', 'css/app.css',
+  'css/base.css', 'css/app.css', 'css/social.css',
   'js/app.js', 'js/config.js', 'js/sha256.js', 'js/util.js', 'js/data.js', 'js/store.js', 'js/ui.js', 'js/charts.js',
-  'js/gate.js', 'js/onboarding.js', 'js/share.js',
+  'js/gate.js', 'js/onboarding.js', 'js/share.js', 'js/cloud.js', 'js/gamedata.js', 'js/gamify.js', 'js/art.js', 'js/photos.js',
   'js/views/home.js', 'js/views/train.js', 'js/views/logger.js', 'js/views/history.js',
   'js/views/progress.js', 'js/views/profile.js', 'js/views/exercise.js', 'js/views/tools.js',
+  'js/views/settings.js', 'js/views/crew.js', 'js/views/feed.js', 'js/views/achieve.js',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
 ];
 

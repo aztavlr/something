@@ -2,7 +2,7 @@
 import { state, save, addProgram } from './store.js';
 import { PROGRAMS, AVATARS } from './data.js';
 import { CONFIG } from './config.js';
-import { esc } from './util.js';
+import { esc, handleOf } from './util.js';
 import { icon, buzz } from './ui.js';
 
 export function renderOnboarding(root, onDone) {
@@ -72,6 +72,7 @@ export function renderOnboarding(root, onDone) {
     else if (t.dataset.ob === 'back') { step--; draw(); }
     else if (t.dataset.ob === 'finish') {
       state.profile.name = d.name.trim();
+      if (!state.profile.handle) state.profile.handle = handleOf(d.name);
       state.profile.avatar = d.avatar;
       state.settings.unit = d.unit;
       state.settings.weeklyGoal = d.goal;

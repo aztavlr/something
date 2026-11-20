@@ -1,166 +1,150 @@
-// Profile: stats, crew invite, appearance & workout settings, tools, data management.
-import { state, save, workoutStats, kgToDisp, wUnit, exportJSON, exportCSV, importJSON, resetAll } from '../store.js';
-import { ACCENTS, AVATARS } from '../data.js';
-import { CONFIG } from '../config.js';
-import { esc, fmtBig, fmtClock, fmtDate, download, isStandalone } from '../util.js';
-import { appbar, icon, on, rerender, toast, applyTheme, openSheet, closeSheet, confirmDialog, toggle } from '../ui.js';
-import { lockEnabled, crewCode, inviteLink, showInstallSheet } from '../gate.js';
-import { nativeShare } from '../share.js';
-import { openLibrary, REST_OPTS } from './exercise.js';
-import { toolsList, plateCalc, oneRmCalc } from './tools.js';
+// Profile: avatar, bio, streak rosette, dot heatmap, and Feed / Stats / Advanced tabs.
+import { state, save, dayCounts, weekOf, prIndex, workoutStats, kgToDisp, wUnit } from '../store.js';
+import { AVATARS } from '../data.js';
+import { streakBadge, badgeCollection, badgeTotal, totalVolume } from '../gamify.js';
+import { rosette, dotHeatmap } from '../art.js';
+import { esc, fmtNum, fmtDur, handleOf, addDays } from '../util.js';
+import { icon, on, rerender, openSheet, closeSheet, toast, actionSheet } from '../ui.js';
+import { barChart } from '../charts.js';
+import { pickImage, resize } from '../photos.js';
+import { localPost, postHTML, hydratePhotos } from './feed.js';
+import { challengesHTML, badgesHTML, milestonesHTML, strengthHTML } from './achieve.js';
+import { cloudEnabled, crewCache, queueProfile, flush } from '../cloud.js';
 
-const seg = (key, opts) => `<div class="seg">${opts.map(([v, l]) => `<button class="${String(state.settings[key]) === String(v) ? 'on' : ''}" data-act="set" data-k="${key}" data-v="${v}">${l}</button>`).join('')}</div>`;
-const row = (ic, title, end, sub = '') => `<div class="row"><span class="row-ic">${icon(ic)}</span><span class="row-main"><div class="row-title">${title}</div>${sub ? `<div class="row-sub">${sub}</div>` : ''}</span>${end}</div>`;
-const navRow = (act, ic, title, sub = '', danger = false) => `<button class="row" data-act="${act}"><span class="row-ic" ${danger ? 'style="background:rgba(251,78,107,.14);color:var(--danger)"' : ''}>${icon(ic)}</span><span class="row-main"><div class="row-title" ${danger ? 'style="color:var(--danger)"' : ''}>${title}</div>${sub ? `<div class="row-sub">${sub}</div>` : ''}</span>${icon('right', 'chev')}</button>`;
+let ptab = 'feed', stab = 'challenges', atab = 'strength', feedLimit = 15;
+
+function avatarBig(p) {
+  return p.photo ? `<img src="${esc(p.photo)}" alt="">` : esc(p.avatar || '💪');
+}
+
+function feedTab() {
+  const ws = state.workouts.slice().sort((a, b) => b.start - a.start);
+  if (!ws.length) return '<div class="card center"><p class="muted" style="margin:0">Your finished workouts show up here as posts.</p><button class="btn primary mt" data-act="go" data-tab="train">Start training</button></div>';
+  const idx = prIndex();
+  return `<div class="row-flex between" style="margin-bottom:2px"><span class="muted" style="font-size:14px;font-weight:700">${ws.length} workouts</span><button class="link" data-act="go" data-tab="history">${icon('calendar')} Calendar</button></div>
+    ${ws.slice(0, feedLimit).map((w) => postHTML(localPost(w, (idx.get(w.id) || []).length))).join('')}
+    ${ws.length > feedLimit ? '<button class="btn block mt" data-act="feed-more">Show more</button>' : ''}`;
+}
+
+function statsTab() {
+  const sub = `<div class="subtabs">${[['challenges', 'Challenges'], ['badges', 'Badges'], ['volume', 'Volume']].map(([k, l]) => `<button class="${k === stab ? 'on' : ''}" data-act="stab" data-k="${k}">${l}</button>`).join('')}</div>`;
+  if (stab === 'challenges') return `${sub}<div class="sec" style="margin-top:4px"><h2>Weekly challenges</h2></div>${challengesHTML()}`;
+  if (stab === 'badges') return `${sub}${badgesHTML()}`;
+  const tot = state.workouts.reduce((a, w) => { const s = workoutStats(w); a.sets += s.sets; a.reps += s.reps; a.dur += s.dur; return a; }, { sets: 0, reps: 0, dur: 0 });
+  return `${sub}
+    <div class="stat-grid">
+      <div class="stat-card"><span>${icon('weight')}Total lifted</span><strong>${Math.round(kgToDisp(totalVolume())).toLocaleString()} <small>${wUnit()}</small></strong></div>
+      <div class="stat-card"><span>${icon('layers')}Sets · reps</span><strong>${tot.sets.toLocaleString()} <small>· ${tot.reps.toLocaleString()}</small></strong></div>
+      <div class="stat-card"><span>${icon('clock')}Time trained</span><strong>${fmtDur(tot.dur)}</strong></div>
+      <div class="stat-card"><span>${icon('trophy')}PRs</span><strong>${[...prIndex().values()].reduce((a, l) => a + l.length, 0)}</strong></div>
+    </div>
+    <div class="card mt"><div class="card-title"><h3>Volume per week</h3><span class="muted" style="font-size:13px">${wUnit()}</span></div><canvas class="chart sm" id="pf-vol"></canvas></div>`;
+}
+
+function advancedTab() {
+  const sub = `<div class="subtabs">${[['strength', 'Strength'], ['milestones', 'Milestones']].map(([k, l]) => `<button class="${k === atab ? 'on' : ''}" data-act="atab" data-k="${k}">${l}</button>`).join('')}</div>`;
+  return sub + (atab === 'strength' ? strengthHTML() : milestonesHTML(totalVolume()));
+}
 
 export function renderProfile(root) {
-  const s = state.settings, p = state.profile;
-  const tot = state.workouts.reduce((a, w) => { const x = workoutStats(w); a.vol += x.vol; a.dur += x.dur; return a; }, { vol: 0, dur: 0 });
-  const code = crewCode();
+  const p = state.profile, sb = streakBadge(), badges = badgeTotal(badgeCollection());
+  const crewN = cloudEnabled() ? Math.max(1, crewCache().members.length) : 1;
+  const prs = [...prIndex().values()].reduce((a, l) => a + l.length, 0);
   root.innerHTML = `
-    ${appbar('Profile', `<button class="icon-btn" data-act="edit-profile" aria-label="Edit profile">${icon('edit')}</button>`)}
-    <div class="card">
-      <div class="profile-card">
-        <button class="avatar" data-act="edit-profile" aria-label="Change avatar">${esc(p.avatar || '💪')}</button>
-        <div class="grow"><h2>${esc(p.name || 'Athlete')}</h2><p>Member since ${esc(fmtDate(p.created || Date.now(), { month: 'long', year: 'numeric' }))}</p></div>
+    <header class="appbar center"><span></span><div class="wordmark">${icon('dumbbell')}IronLog</div>
+      <button class="icon-btn plain" data-act="go" data-tab="settings" aria-label="Settings">${icon('gear')}</button></header>
+    <div class="pf-top">
+      <button class="pf-avatar" data-act="edit-profile" aria-label="Edit profile">${avatarBig(p)}</button>
+      <div class="pf-top-right"><span class="pf-count"><b>${state.workouts.length}</b> workouts</span><button class="pill" data-act="edit-profile">Edit</button></div>
+    </div>
+    <div class="pf-id">
+      <div class="grow">
+        <h2>${esc(p.name || 'Athlete')}</h2>
+        <div class="pf-handle">@${esc(p.handle || handleOf(p.name) || 'athlete')}</div>
+        ${p.bio ? `<p class="pf-bio">${esc(p.bio)}</p>` : '<p class="pf-bio muted" style="font-size:14px">Add a bio with Edit.</p>'}
+        <div class="pf-follow"><span><b>${crewN}</b>Crew</span><span><b>${badges}</b>Badges</span><span><b>${prs}</b>PRs</span></div>
       </div>
-      <div class="tiles mt">
-        <div class="tile">${icon('dumbbell')}<strong>${state.workouts.length}</strong><span>Workouts</span></div>
-        <div class="tile">${icon('clock')}<strong>${Math.round(tot.dur / 36e5)}h</strong><span>Trained</span></div>
-        <div class="tile">${icon('weight')}<strong>${fmtBig(kgToDisp(tot.vol))}</strong><span>${wUnit()} lifted</span></div>
-      </div>
+      <button class="pf-badge" data-act="streak-info" aria-label="Streak">${rosette(sb.roman, 96, sb.level === 0)}<span>${sb.weeks} week streak</span></button>
     </div>
-
-    <div class="crew-card mt">
-      <h3>${icon('users')} ${esc(CONFIG.crewName)}</h3>
-      <p>${lockEnabled() ? 'This app is members-only. Send friends your invite link and it unlocks the app for them.' : 'Send friends the link so they can install the app too.'}</p>
-      <div class="btn-row"><button class="btn primary" data-act="invite">${icon('share')} Invite friends</button>${lockEnabled() && code ? `<button class="btn" data-act="show-code" style="flex:0 0 auto">${icon('lock')} Code</button>` : ''}</div>
-    </div>
-    ${!isStandalone() ? `<div class="list mt">${navRow('install-help', 'phone', 'Install on your phone', 'Add to home screen for the full app experience')}</div>` : ''}
-
-    <div class="group-label">Appearance</div>
-    <div class="list">
-      ${row('moon', 'Theme', seg('theme', [['dark', 'Dark'], ['light', 'Light'], ['auto', 'Auto']]))}
-      <div class="row" style="flex-direction:column;align-items:stretch;gap:10px"><div class="row-flex"><span class="row-ic">${icon('palette')}</span><span class="row-title">Accent color</span></div>
-        <div class="swatches">${Object.entries(ACCENTS).map(([k, hex]) => `<button class="swatch ${s.accent === k ? 'on' : ''}" style="background:${hex}" data-act="set" data-k="accent" data-v="${k}" aria-label="${k}"></button>`).join('')}</div></div>
-    </div>
-
-    <div class="group-label">Workout</div>
-    <div class="list">
-      ${row('weight', 'Units', seg('unit', [['kg', 'kg'], ['lb', 'lb']]))}
-      ${row('target', 'Weekly goal', `<div class="stepper"><button data-act="step" data-k="weeklyGoal" data-d="-1" aria-label="Less">${icon('minus')}</button><b>${s.weeklyGoal}</b><button data-act="step" data-k="weeklyGoal" data-d="1" aria-label="More">${icon('plus')}</button></div>`, 'Workouts per week')}
-      ${row('calendar', 'Week starts on', seg('weekStart', [[1, 'Mon'], [0, 'Sun']]))}
-      ${row('timer', 'Default rest', `<select class="input" data-setting="rest" style="width:auto;min-height:38px;padding:6px 34px 6px 12px">${REST_OPTS.map((x) => `<option value="${x}" ${x === s.rest ? 'selected' : ''}>${x ? fmtClock(x) : 'Off'}</option>`).join('')}</select>`)}
-      ${row('play', 'Auto-start rest timer', toggle('autoRest', s.autoRest), 'When you tick off a set')}
-      ${row('bell', 'Timer sound', toggle('sound', s.sound))}
-      ${row('zap', 'Vibration', toggle('vibrate', s.vibrate), 'Android only')}
-      ${row('sun', 'Keep screen on', toggle('wakeLock', s.wakeLock), 'During a workout')}
-      ${row('sliders', 'Show RPE column', toggle('showRpe', s.showRpe), 'Rate of perceived exertion (1–10)')}
-    </div>
-
-    <div class="group-label">Library & tools</div>
-    <div class="list">
-      ${navRow('library', 'book', 'Exercise library', `${state.exercises.filter((e) => !e.hidden).length} exercises · add your own`)}
-      ${toolsList()}
-    </div>
-
-    <div class="group-label">Your data</div>
-    <div class="list">
-      ${navRow('export-json', 'download', 'Export backup', 'Save everything to a file')}
-      <label class="row" style="cursor:pointer"><span class="row-ic">${icon('upload')}</span><span class="row-main"><div class="row-title">Import backup</div><div class="row-sub">Restore from a backup file</div></span>${icon('right', 'chev')}<input type="file" id="import-file" accept="application/json,.json" hidden></label>
-      ${navRow('export-csv', 'list', 'Export to spreadsheet', 'CSV of every set you have logged')}
-      ${navRow('reset', 'trash', 'Erase all data', '', true)}
-    </div>
-    <p class="group-foot">Your workouts are stored privately on this device. Export a backup before switching phones.</p>
-    <p class="center faint" style="font-size:13px;margin:24px 0 0">${esc(CONFIG.appName)} v${esc(CONFIG.version)}</p>`;
-  root.querySelector('#import-file').addEventListener('change', importFile);
+    ${dotHeatmap(dayCounts(), weekOf(Date.now()), state.settings.weekStart, 20)}
+    <div class="utabs">${[['feed', 'Feed'], ['stats', 'Stats'], ['advanced', 'Advanced']].map(([k, l]) => `<button class="${k === ptab ? 'on' : ''}" data-act="ptab" data-k="${k}">${l}</button>`).join('')}</div>
+    <div id="pf-body">${ptab === 'feed' ? feedTab() : ptab === 'stats' ? statsTab() : advancedTab()}</div>`;
+  if (ptab === 'feed') hydratePhotos(root);
+  const cv = root.querySelector('#pf-vol');
+  if (cv) {
+    const cur = weekOf(Date.now());
+    const bars = Array.from({ length: 12 }, (_, i) => {
+      const ws = addDays(cur, -(11 - i) * 7), we = addDays(ws, 7);
+      const v = state.workouts.filter((w) => w.start >= ws && w.start < we).reduce((a, w) => a + workoutStats(w).vol, 0);
+      return { label: i % 3 === 2 || i === 11 ? new Date(ws).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' }) : '', value: kgToDisp(v), hi: i === 11 };
+    });
+    barChart(cv, bars, { fmt: (v) => (v >= 1000 ? `${fmtNum(v / 1000, 1)}k` : String(Math.round(v))) });
+  }
 }
 
-function importFile(e) {
-  const f = e.target.files[0];
-  if (!f) return;
-  const r = new FileReader();
-  r.onload = async () => {
-    try {
-      const preview = JSON.parse(r.result);
-      const n = (preview.data?.workouts || preview.workouts || []).length;
-      if (!(await confirmDialog({ title: `Import ${n} workouts?`, message: 'This replaces all data on this device.', confirm: 'Import', danger: true }))) return;
-      importJSON(r.result);
-      applyTheme(); rerender(); toast('Backup restored', 'check');
-    } catch (err) { toast("That file isn't an IronLog backup", 'info'); }
-  };
-  r.readAsText(f);
-  e.target.value = '';
-}
+on('ptab', (el) => { ptab = el.dataset.k; rerender(); });
+on('stab', (el) => { stab = el.dataset.k; rerender(); });
+on('atab', (el) => { atab = el.dataset.k; rerender(); });
+on('feed-more', () => { feedLimit += 15; rerender(); });
+export function showAdvanced(tab) { ptab = 'advanced'; atab = tab; }
+export function showStats(tab) { ptab = 'stats'; stab = tab; }
 
-const SET_NUMERIC = ['weekStart', 'rest', 'weeklyGoal'];
-on('set', (el) => {
-  const k = el.dataset.k;
-  state.settings[k] = SET_NUMERIC.includes(k) ? +el.dataset.v : el.dataset.v;
-  save();
-  if (k === 'theme' || k === 'accent') applyTheme();
-  rerender();
-});
-on('step', (el) => {
-  const k = el.dataset.k;
-  state.settings[k] = Math.min(7, Math.max(1, (state.settings[k] || 3) + +el.dataset.d));
-  save(); rerender();
-});
-document.addEventListener('change', (e) => {
-  const k = e.target.dataset?.setting;
-  if (!k) return;
-  state.settings[k] = e.target.type === 'checkbox' ? e.target.checked : SET_NUMERIC.includes(k) ? +e.target.value : e.target.value;
-  save();
-  toast('Saved', 'check');
+on('streak-info', () => {
+  const sb = streakBadge();
+  const steps = [[1, 'I'], [4, 'II'], [8, 'III'], [16, 'IV'], [26, 'V'], [52, 'VI']];
+  openSheet(`
+    <div class="center">${rosette(sb.roman, 120, sb.level === 0)}
+      <div class="sheet-title" style="margin-top:8px">${sb.weeks} week streak</div>
+      <p class="muted" style="margin:-6px 0 16px">Train at least once every week to keep it going. ${sb.next ? `${sb.next - sb.weeks} more week${sb.next - sb.weeks > 1 ? 's' : ''} to level ${['', 'I', 'II', 'III', 'IV', 'V', 'VI'][sb.level + 1]}.` : 'Max level. Legend.'}</p></div>
+    <div class="list">${steps.map(([n, r], i) => `<div class="row"><span class="row-ic" style="${sb.level > i ? '' : 'filter:grayscale(1);opacity:.5'}">🔥</span><span class="row-main"><div class="row-title">Level ${r}</div><div class="row-sub">${n} week${n > 1 ? 's' : ''} in a row</div></span>${sb.level > i ? icon('check') : ''}</div>`).join('')}</div>`);
 });
 
 on('edit-profile', () => {
-  const d = { name: state.profile.name || '', avatar: state.profile.avatar || '💪' };
-  const body = openSheet(`
-    <div class="sheet-head"><h2>Edit profile</h2></div>
-    <label class="field"><span>Name</span><input class="input" id="pf-name" value="${esc(d.name)}" maxlength="30" placeholder="Your name"></label>
-    <div class="field mt"><span>Avatar</span><div class="avatar-grid" id="pf-av">${AVATARS.map((a) => `<button data-av="${a}" class="${a === d.avatar ? 'on' : ''}">${a}</button>`).join('')}</div></div>
-    <div class="btn-row mt-lg"><button class="btn" data-act="close-sheet">Cancel</button><button class="btn primary" id="pf-save">Save</button></div>`);
-  body.querySelector('#pf-av').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-av]');
-    if (!b) return;
-    d.avatar = b.dataset.av;
-    body.querySelectorAll('[data-av]').forEach((x) => x.classList.toggle('on', x === b));
-  });
-  body.querySelector('#pf-save').onclick = () => {
-    state.profile.name = body.querySelector('#pf-name').value.trim();
-    state.profile.avatar = d.avatar;
-    save(); closeSheet(); rerender();
+  const p = state.profile;
+  const d = { name: p.name || '', handle: p.handle || handleOf(p.name), bio: p.bio || '', avatar: p.avatar || '💪', photo: p.photo || '' };
+  const body = openSheet('', { cls: 'tall' });
+  const draw = () => {
+    body.innerHTML = `
+      <div class="sheet-head"><h2>Edit profile</h2><button class="btn primary sm" id="pf-save">Save</button></div>
+      <div class="center"><button class="pf-avatar" id="pf-pic" style="margin:0 auto">${d.photo ? `<img src="${esc(d.photo)}" alt="">` : esc(d.avatar)}</button>
+        <button class="link" id="pf-pic2" style="margin-top:6px">${icon('camera')} ${d.photo ? 'Change photo' : 'Add photo'}</button></div>
+      <div class="col mt">
+        <label class="field"><span>Name</span><input class="input" id="pf-name" value="${esc(d.name)}" maxlength="30" placeholder="Your name"></label>
+        <label class="field"><span>Username</span><input class="input" id="pf-handle" value="${esc(d.handle)}" maxlength="24" placeholder="username" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+        <label class="field"><span>Bio</span><textarea class="input" id="pf-bio" maxlength="160" placeholder="If in doubt, spam lateral raises">${esc(d.bio)}</textarea></label>
+        ${d.photo ? '' : `<div class="field"><span>Or pick an avatar</span><div class="avatar-grid" id="pf-av">${AVATARS.map((a) => `<button data-av="${a}" class="${a === d.avatar ? 'on' : ''}">${a}</button>`).join('')}</div></div>`}
+      </div>`;
+    const sync = () => {
+      d.name = body.querySelector('#pf-name').value;
+      d.handle = body.querySelector('#pf-handle').value;
+      d.bio = body.querySelector('#pf-bio').value;
+    };
+    const photo = () => {
+      sync();
+      const choose = async () => { const img = await pickImage(); if (img) { d.photo = resize(img, { max: 256, square: true, quality: 0.82 }); draw(); } };
+      if (!d.photo) { choose(); return; }
+      actionSheet('Profile photo', [
+        { label: 'Choose a new photo', icon: 'camera', run: choose },
+        { label: 'Remove photo', icon: 'trash', danger: true, run: () => { d.photo = ''; draw(); } },
+      ]);
+    };
+    body.querySelector('#pf-pic').onclick = photo;
+    body.querySelector('#pf-pic2').onclick = photo;
+    body.querySelector('#pf-av')?.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-av]');
+      if (!b) return;
+      sync(); d.avatar = b.dataset.av; draw();
+    });
+    body.querySelector('#pf-save').onclick = () => {
+      sync();
+      Object.assign(state.profile, {
+        name: d.name.trim().slice(0, 30), handle: handleOf(d.handle) || handleOf(d.name), bio: d.bio.trim().slice(0, 160),
+        avatar: d.avatar, photo: d.photo,
+      });
+      if (!save()) { toast('Photo too big to save. Try another.', 'info'); return; }
+      queueProfile(); flush();
+      closeSheet(); rerender(); toast('Profile saved', 'check');
+    };
   };
-});
-
-on('invite', () => nativeShare({
-  title: CONFIG.appName,
-  text: `Join me on ${CONFIG.appName}, our private gym app 💪 Open this link, then add it to your home screen:`,
-  url: inviteLink(),
-}));
-on('show-code', () => {
-  openSheet(`
-    <div class="center">
-      <div class="sheet-title">Crew code</div>
-      <p class="muted" style="margin:-6px 0 16px">Friends can type this on the lock screen if their invite link doesn't open the app.</p>
-      <div class="code-box">${esc(crewCode() || '')}</div>
-      <button class="btn block mt-lg" data-act="copy-invite">${icon('copy')} Copy invite link</button>
-    </div>`);
-});
-on('copy-invite', async () => {
-  try { await navigator.clipboard.writeText(inviteLink()); toast('Invite link copied', 'copy'); }
-  catch (e) { window.prompt('Copy this invite link:', inviteLink()); }
-});
-on('install-help', () => showInstallSheet());
-on('library', () => openLibrary());
-on('tool-plates', () => plateCalc());
-on('tool-1rm', () => oneRmCalc());
-on('export-json', () => { download(`ironlog-backup-${new Date().toISOString().slice(0, 10)}.json`, exportJSON()); toast('Backup saved', 'download'); });
-on('export-csv', () => { download(`ironlog-sets-${new Date().toISOString().slice(0, 10)}.csv`, exportCSV(), 'text/csv'); toast('Spreadsheet saved', 'download'); });
-on('reset', async () => {
-  if (!(await confirmDialog({ title: 'Erase all data?', message: 'Every workout, routine and setting on this device will be deleted. Export a backup first if you might want it.', confirm: 'Erase everything', danger: true }))) return;
-  if (!(await confirmDialog({ title: 'Are you absolutely sure?', message: 'This cannot be undone.', confirm: 'Yes, erase', danger: true }))) return;
-  resetAll();
-  location.reload();
+  draw();
 });

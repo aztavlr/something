@@ -1,9 +1,11 @@
 // History: month calendar, workout list grouped by month, workout detail with actions.
 import { state, save, exById, workoutStats, fmtVol, prIndex, setText, startWorkout, editWorkout, isWorkSet } from '../store.js';
 import { esc, uid, fmtDate, fmtTime, fmtDur, startOfDay, addDays, DAY } from '../util.js';
-import { appbar, icon, on, go, rerender, toast, openSheet, closeAllSheets, actionSheet, confirmDialog, empty } from '../ui.js';
+import { appbar, icon, on, go, rerender, toast, openSheet, closeSheet, closeAllSheets, actionSheet, confirmDialog, empty } from '../ui.js';
 import { shareWorkoutImage, shareWorkoutLink } from '../share.js';
 import { openExercise } from './exercise.js';
+import { getPhoto, setPhoto, delPhoto, pickImage, resize } from '../photos.js';
+import { queueWorkout, queueDelete, flush } from '../cloud.js';
 
 let calMonth = null; // first day of the visible month (timestamp)
 const FEELS = ['', '😫', '😕', '🙂', '😀', '🔥'];
@@ -74,7 +76,7 @@ export function renderHistory(root) {
     list += wcard(w, idx.get(w.id) || []);
   }
   root.innerHTML = `
-    ${appbar('History', ws.length ? `<span class="tag">${ws.length} total</span>` : '')}
+    <header class="appbar center"><button class="icon-btn plain" data-act="go" data-tab="profile" aria-label="Back">${icon('left')}</button><h1 style="font-size:22px">History</h1>${ws.length ? `<span class="tag" style="justify-self:end">${ws.length}</span>` : '<span></span>'}</header>
     ${calendar()}
     ${ws.length ? list : `<div class="card mt">${empty('calendar', 'No workouts yet', 'Finish your first workout and it will appear here.', '<button class="btn primary" data-act="go" data-tab="train">Start training</button>')}</div>`}`;
 }
@@ -86,7 +88,7 @@ export function openWorkout(id) {
   if (!w) return;
   const st = workoutStats(w), prs = prIndex().get(w.id) || [];
   const prSet = new Set(prs.map((p) => `${p.exId}:${p.si}`));
-  openSheet(`
+  const body = openSheet(`
     <div class="sheet-head"><div class="grow"><h2>${esc(w.name)}</h2>
       <div class="muted" style="font-size:14px;margin-top:2px">${esc(fmtDate(w.start, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }))} · ${esc(fmtTime(w.start))}</div></div>
       <button class="icon-btn" data-act="w-menu" data-id="${w.id}" aria-label="More">${icon('more')}</button></div>
@@ -95,6 +97,7 @@ export function openWorkout(id) {
       <div class="tile">${icon('weight')}<strong>${fmtVol(st.vol)}</strong><span>Volume</span></div>
       <div class="tile">${icon('layers')}<strong>${st.sets}</strong><span>Sets</span></div>
     </div>
+    <div class="post-photo" id="wd-photo" hidden></div>
     ${w.feel || w.notes ? `<div class="card mt">${w.feel ? `<div style="font-size:15px;font-weight:650">Felt ${FEELS[w.feel]}</div>` : ''}${w.notes ? `<div class="muted" style="white-space:pre-wrap;margin-top:${w.feel ? 6 : 0}px">${esc(w.notes)}</div>` : ''}</div>` : ''}
     <div class="col mt">
       ${w.exercises.map((ex) => {
@@ -114,6 +117,22 @@ export function openWorkout(id) {
       <button class="btn primary" data-act="w-repeat" data-id="${w.id}">${icon('repeat')} Repeat</button>
       <button class="btn" data-act="w-share" data-id="${w.id}">${icon('share')} Share</button>
     </div>`, { cls: 'tall' });
+  getPhoto(w.id).then((src) => {
+    const el = body.querySelector('#wd-photo');
+    if (src && el) { el.innerHTML = `<img src="${src}" alt="">`; el.hidden = false; }
+  });
+}
+
+/** Ask for a photo and attach it to a workout. Resolves true when one was added. */
+export async function addWorkoutPhoto(w) {
+  const img = await pickImage();
+  if (!img) return false;
+  try {
+    await setPhoto(w.id, resize(img, { max: 1080, quality: 0.78 }));
+  } catch (e) { toast('Could not save the photo', 'info'); return false; }
+  queueWorkout(w.id); flush();
+  toast('Photo added', 'camera');
+  return true;
 }
 on('open-workout', (el) => openWorkout(el.dataset.id));
 
@@ -142,13 +161,16 @@ on('w-menu', (el) => {
       if (state.active && !(await confirmDialog({ title: 'Workout in progress', message: 'Editing this one will discard the current workout.', confirm: 'Discard & edit', danger: true }))) return;
       editWorkout(w.id); closeAllSheets(); go('train');
     } },
+    { label: 'Add or change photo', icon: 'camera', run: async () => { if (await addWorkoutPhoto(w)) { closeSheet(); openWorkout(w.id); rerender(); } } },
+    { label: 'Remove photo', icon: 'x', run: async () => { await delPhoto(w.id); queueWorkout(w.id); flush(); closeSheet(); openWorkout(w.id); rerender(); } },
     { label: 'Save as routine', icon: 'list', run: () => {
       state.routines.push({ id: uid(), name: w.name, items: w.exercises.map((ex) => ({ exId: ex.exId, sets: ex.sets.filter((s) => s.kind !== 'w').length || ex.sets.length })) });
       save(); toast('Saved to your routines', 'check');
     } },
     { label: 'Delete workout', icon: 'trash', danger: true, run: async () => {
       if (!(await confirmDialog({ title: 'Delete this workout?', message: 'This cannot be undone.', confirm: 'Delete', danger: true }))) return;
-      state.workouts = state.workouts.filter((x) => x.id !== w.id); save(); closeAllSheets(); rerender(); toast('Workout deleted', 'trash');
+      state.workouts = state.workouts.filter((x) => x.id !== w.id); save(); delPhoto(w.id); queueDelete(w.id); flush();
+      closeAllSheets(); rerender(); toast('Workout deleted', 'trash');
     } },
   ]);
 });

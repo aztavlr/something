@@ -168,6 +168,6 @@ export const PROGRAMS = [
 export const AVATARS = ['💪', '🏋️', '🔥', '🦍', '🐻', '🦁', '⚡', '🏆', '🚀', '😤', '🤖', '👑', '🐺', '🦾', '🧠', '🥇', '🐉', '🌟'];
 
 export const ACCENTS = {
-  ember: '#ff6b35', blue: '#3b82f6', violet: '#8b5cf6', pink: '#ec4899',
-  green: '#22c55e', teal: '#14b8a6', gold: '#f59e0b', red: '#ef4444',
+  gold: '#f5b83d', ember: '#ff6b35', blue: '#3b82f6', violet: '#8b5cf6',
+  pink: '#ec4899', green: '#22c55e', teal: '#14b8a6', red: '#ef4444',
 };

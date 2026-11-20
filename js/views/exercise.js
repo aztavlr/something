@@ -1,5 +1,5 @@
 // Exercise picker, library, detail (charts + records) and editor.
-import { state, save, exById, exerciseSessions, e1rm, setText, kgToDisp, kmToDisp, wUnit, dUnit, isWorkSet } from '../store.js';
+import { state, save, exById, exerciseSessions, e1rm, setText, kgToDisp, kmToDisp, wUnit, dUnit, isWorkSet, weekOf } from '../store.js';
 import { MUSCLES, EQUIPMENT, TYPES } from '../data.js';
 import { esc, uid, fmtDate, fmtNum, fmtClock, fmtRel } from '../util.js';
 import { openSheet, closeSheet, icon, toast, confirmDialog, rerender } from '../ui.js';
@@ -193,13 +193,28 @@ function fmtMetric(m) {
 }
 const unitOf = (m) => (['e1rm', 'top', 'add', 'vol'].includes(m) ? wUnit() : m === 'dist' ? dUnit() : m === 'pace' ? `/${dUnit()}` : m === 'reps' || m === 'best' ? 'reps' : '');
 
-const metricSel = {};
+const metricSel = {}, periodSel = {};
+const SUMMED = ['vol', 'reps', 'total', 'time', 'dist'];
+function aggregate(pts, per, m) {
+  if (per === 'session') return pts;
+  const key = (t) => { if (per === 'week') return weekOf(t); const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); };
+  const groups = new Map();
+  for (const p of pts) {
+    const k = key(p.t), g = groups.get(k);
+    if (!g) groups.set(k, { t: k, y: p.y });
+    else g.y = SUMMED.includes(m) ? g.y + p.y : m === 'pace' ? Math.min(g.y, p.y) : Math.max(g.y, p.y);
+  }
+  return [...groups.values()].sort((a, b) => a.t - b.t);
+}
 export function openExercise(exId) {
   const body = openSheet('', { cls: 'tall' });
   const draw = () => {
     const e = exById(exId), sessions = exerciseSessions(exId), type = e.type in METRICS ? e.type : 'weight';
     const m = metricSel[exId] || METRICS[type][0][0];
-    const pts = sessions.map(({ w, ex }) => ({ t: w.start, y: value(m, ex) })).filter((p) => p.y > 0);
+    const per = periodSel[exId] || 'session';
+    const raw = sessions.map(({ w, ex }) => ({ t: w.start, y: value(m, ex) })).filter((p) => p.y > 0);
+    const pts = aggregate(raw, per, m);
+    const pb = raw.length ? (m === 'pace' ? Math.min(...raw.map((p) => p.y)) : Math.max(...raw.map((p) => p.y))) : 0;
     const all = sessions.flatMap(({ w, ex }) => ex.sets.filter(isWorkSet).map((s) => ({ s, t: w.start })));
     const rec = (label, v, sub = '') => `<div class="record"><span>${label}</span><strong>${v}</strong>${sub ? `<span>${sub}</span>` : ''}</div>`;
     let records = '';
@@ -251,13 +266,17 @@ export function openExercise(exId) {
       ${e.notes ? `<div class="exb-note" style="margin:0 0 12px">${esc(e.notes)}</div>` : ''}
       ${!sessions.length ? '<div class="empty"><div class="empty-ic">' + icon('chart') + '</div><h3>No history yet</h3><p class="muted">Log this exercise and your progress shows up here.</p></div>' : `
         <div class="chips">${METRICS[type].map(([k, l]) => `<button class="chip ${k === m ? 'on' : ''}" data-metric="${k}">${l}</button>`).join('')}</div>
-        <div class="card mt"><div class="muted" style="font-size:13px;font-weight:700">${METRICS[type].find((x) => x[0] === m)[1]}${unitOf(m) ? ` (${unitOf(m)})` : ''}</div>
+        <div class="card mt">
+          <div class="row-flex between"><b style="font-size:17px">${METRICS[type].find((x) => x[0] === m)[1]}</b>${pb ? `<b class="gold" style="font-size:18px">PB: ${fmtMetric(m)(pb)} ${unitOf(m)}</b>` : ''}</div>
+          <div class="seg mt" style="margin-bottom:6px">${[['session', 'Sessions'], ['week', 'Weekly'], ['month', 'Monthly']].map(([k, l]) => `<button class="${k === per ? 'on' : ''}" data-period="${k}">${l}</button>`).join('')}</div>
+          <div class="muted" style="font-size:12.5px;text-align:center">Tap a point to see the details</div>
           ${pts.length ? '<canvas class="chart" id="ex-chart"></canvas>' : '<p class="muted">No data for this metric yet.</p>'}</div>
         <div class="records mt">${records}</div>
         ${repMax}
         <div class="group-label">History</div><div class="list">${hist}</div>`}`;
-    if (pts.length) lineChart(body.querySelector('#ex-chart'), pts, { fmt: fmtMetric(m) });
+    if (pts.length) lineChart(body.querySelector('#ex-chart'), pts, { fmt: fmtMetric(m), labels: true });
     body.querySelectorAll('[data-metric]').forEach((b) => { b.onclick = () => { metricSel[exId] = b.dataset.metric; draw(); }; });
+    body.querySelectorAll('[data-period]').forEach((b) => { b.onclick = () => { periodSel[exId] = b.dataset.period; draw(); }; });
     body.querySelector('#ex-edit')?.addEventListener('click', () => editExercise(exId, () => draw()));
   };
   draw();

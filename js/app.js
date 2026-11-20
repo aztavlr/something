@@ -10,17 +10,21 @@ import { renderTrain } from './views/train.js';
 import { renderHistory } from './views/history.js';
 import { renderProgress } from './views/progress.js';
 import { renderProfile } from './views/profile.js';
+import { renderSettings } from './views/settings.js';
+import { renderCrew } from './views/crew.js';
 import { resumeRest, syncWake } from './views/logger.js';
+import { cloudEnabled, flush, pullCrew, onCrewUpdate, queueProfile } from './cloud.js';
 
-const VIEWS = { home: renderHome, train: renderTrain, history: renderHistory, progress: renderProgress, profile: renderProfile };
+const VIEWS = { home: renderHome, crew: renderCrew, train: renderTrain, history: renderHistory, progress: renderProgress, profile: renderProfile, settings: renderSettings };
+const TAB_OF = { settings: 'profile', history: 'profile' };
 const view = $('#view'), tabbar = $('#tabbar');
 
 function renderTabbar() {
-  const t = app.tab, a = state.active;
+  const t = TAB_OF[app.tab] || app.tab, a = state.active;
   const tab = (k, ic, label) => `<button class="tab ${t === k ? 'active' : ''}" data-act="go" data-tab="${k}">${icon(ic)}<span>${label}</span></button>`;
   tabbar.innerHTML = [
     tab('home', 'home', 'Home'),
-    tab('history', 'calendar', 'History'),
+    tab('crew', 'users', 'Crew'),
     `<button class="tab tab-center ${t === 'train' ? 'active' : ''}" data-act="go" data-tab="train" aria-label="Train">
       <span class="tab-fab ${a && !a.editing ? 'live' : ''}">${icon(a ? 'timer' : 'dumbbell')}</span>
       <span id="tab-elapsed">${a && !a.editing ? fmtClock((Date.now() - a.start) / 1000) : 'Train'}</span></button>`,
@@ -72,8 +76,16 @@ function boot(opts = {}) {
   resumeRest();
   syncWake();
   checkIncomingShare();
+  if (cloudEnabled()) { queueProfile(); pullCrew(); }
 }
 boot();
+
+// Fresh crew data arrived: redraw crew-facing screens unless the user is busy in a sheet or typing.
+onCrewUpdate(() => {
+  const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if (!tabbar.hidden && !sheetOpen() && !typing && (app.tab === 'crew' || app.tab === 'home')) render();
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden && cloudEnabled()) flush(); });
 
 // Re-check incoming share links when the app is already open (e.g. link opened in same tab)
 window.addEventListener('hashchange', () => { if (!tabbar.hidden && !sheetOpen()) checkIncomingShare(); });

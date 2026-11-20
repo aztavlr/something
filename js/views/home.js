@@ -1,10 +1,50 @@
 // Home dashboard: weekly goal ring, streak, next routine, activity heatmap, muscle split, recent PRs.
-import { state, workoutsInWeek, streakWeeks, workoutStats, fmtVol, prIndex, exById, setText, nextRoutine, routineLastDone, dayCounts, weekOf, isWorkSet } from '../store.js';
+import { state, workoutsInWeek, streakWeeks, workoutStats, fmtVol, prIndex, exById, setText, nextRoutine, routineLastDone, weekOf, isWorkSet, kgToDisp, wUnit } from '../store.js';
 import { MUSCLE_COLORS } from '../data.js';
 import { esc, greeting, fmtRel, fmtDur, fmtClock, fmtDate } from '../util.js';
-import { appbar, icon, on, rerender } from '../ui.js';
-import { ring, heatmap } from '../charts.js';
+import { appbar, icon, on, rerender, go } from '../ui.js';
+import { ring } from '../charts.js';
 import { showInstallBanner, showInstallSheet } from '../gate.js';
+import { weekChallenges, milestoneInfo, totalVolume } from '../gamify.js';
+import { cloudEnabled, crewCache, me } from '../cloud.js';
+import { avatarHTML, volText } from './feed.js';
+import { showAdvanced, showStats } from './profile.js';
+
+function challengesCard() {
+  const list = weekChallenges().sort((a, b) => a.done - b.done);
+  const doneN = list.filter((c) => c.done).length;
+  return `<div class="sec"><h2>Weekly challenges</h2><button class="link" data-act="open-challenges">${doneN}/${list.length} done</button></div>
+    <div class="card" style="padding:4px 0">${list.slice(0, 3).map((c) => `
+      <div class="chal ${c.done ? 'done' : ''}"><div class="chal-ic">${c.emoji}</div>
+        <div class="chal-main"><b>${esc(c.name)}</b><span>${esc(c.desc || `Lift ${Math.round(kgToDisp(c.target)).toLocaleString()} ${wUnit()} this week`)}</span>
+          <div class="bar"><i style="width:${Math.min(100, (c.value / c.target) * 100)}%"></i></div></div></div>`).join('')}</div>`;
+}
+
+function milestoneCard() {
+  const mi = milestoneInfo(totalVolume());
+  if (!mi.next) return '';
+  const pct = Math.min(100, Math.floor(mi.pct * 100));
+  return `<button class="card wcard mt" data-act="open-milestones" style="display:flex;align-items:center;gap:14px">
+    <span style="font-size:40px">${mi.next.emoji}</span>
+    <span class="grow"><span class="muted" style="font-size:12.5px;font-weight:800;letter-spacing:.06em">NEXT MILESTONE</span>
+      <b style="display:block;font-size:17px">${esc(mi.next.name)}</b>
+      <span class="bar" style="display:block"><i style="width:${pct}%"></i></span></span>
+    <b class="gold" style="font-size:18px">${pct}%</b></button>`;
+}
+
+function crewCard() {
+  if (!cloudEnabled()) return '';
+  const wk = weekOf(Date.now()), c = crewCache();
+  const list = c.members.filter((m) => m.id !== me().id).concat([{ ...state.profile, id: me().id, stats: { week: wk, weekVolume: workoutsInWeek().reduce((a, w) => a + workoutStats(w).vol, 0) }, me: true }]);
+  const wv = (m) => (m.stats && m.stats.week === wk ? m.stats.weekVolume || 0 : 0);
+  const top = list.sort((a, b) => wv(b) - wv(a)).slice(0, 3);
+  return `<div class="sec"><h2>Crew this week</h2><button class="link" data-act="go" data-tab="crew">Leaderboard</button></div>
+    <div class="list">${top.map((m, i) => `<button class="row" data-act="go" data-tab="crew"><span class="lb-rank medal-${i + 1}" style="width:18px">${i + 1}</span>${avatarHTML(m, 'sm')}
+      <span class="row-main"><div class="row-title">${esc(m.name || 'Athlete')}${m.me ? ' <span class="muted">(you)</span>' : ''}</div></span><span class="row-end gold">${volText(wv(m))}</span></button>`).join('')}</div>`;
+}
+
+on('open-milestones', () => { showAdvanced('milestones'); go('profile'); });
+on('open-challenges', () => { showStats('challenges'); go('profile'); });
 
 const BANNER_KEY = 'ironlog:hideInstall';
 
@@ -84,11 +124,9 @@ export function renderHome(root) {
       </div>
       ${hero}
     </div>
-    <div class="sec"><h2>Activity</h2><span class="muted" style="font-size:14px">${state.workouts.length} workout${state.workouts.length === 1 ? '' : 's'}</span></div>
-    <div class="card">
-      ${heatmap(dayCounts(), weekOf(Date.now()), 18)}
-      <div class="hm-legend">Less <i class="hm"></i><i class="hm l1"></i><i class="hm l2"></i><i class="hm l3"></i> More</div>
-    </div>
+    ${challengesCard()}
+    ${milestoneCard()}
+    ${crewCard()}
     <div class="sec"><h2>Sets this week</h2></div>
     <div class="card">${muscles.length ? muscleBars(muscles) : '<p class="muted" style="margin:0">Finish a workout to see which muscles you trained.</p>'}</div>
     <div class="sec"><h2>Recent PRs</h2>${prs.length ? '<button class="link" data-act="go" data-tab="progress">See progress</button>' : ''}</div>

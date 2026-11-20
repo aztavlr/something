@@ -1,7 +1,7 @@
 /* ===== Design tokens ===== */
 :root {
-  --accent: #ff6b35;
-  --accent-rgb: 255, 107, 53;
+  --accent: #f5b83d;
+  --accent-rgb: 245, 184, 61;
   --radius: 20px;
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -9,11 +9,11 @@
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Inter, "Helvetica Neue", sans-serif;
 }
 :root, :root[data-theme="dark"] {
-  --bg: #0b0c10;
-  --bg-glow: rgba(var(--accent-rgb), 0.16);
-  --surface: #15171d;
-  --surface-2: #1d2028;
-  --surface-3: #2a2e39;
+  --bg: #000000;
+  --bg-glow: rgba(var(--accent-rgb), 0.12);
+  --surface: #111214;
+  --surface-2: #1a1b1f;
+  --surface-3: #2a2c33;
   --border: rgba(255, 255, 255, 0.07);
   --border-strong: rgba(255, 255, 255, 0.13);
   --text: #f3f4f6;
@@ -25,7 +25,7 @@
   --danger: #fb4e6b;
   --gold: #fbbf24;
   --shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
-  --glass: rgba(11, 12, 16, 0.78);
+  --glass: rgba(0, 0, 0, 0.82);
   color-scheme: dark;
 }
 :root[data-theme="light"] {

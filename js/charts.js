@@ -26,7 +26,7 @@ function niceTicks(min, max, n = 4) {
 }
 
 /** points: [{t, y}] sorted by t. Interactive: tap/drag to inspect. */
-export function lineChart(canvas, points, { fmt = (v) => String(Math.round(v)) } = {}) {
+export function lineChart(canvas, points, { fmt = (v) => String(Math.round(v)), hollow = true, labels = false } = {}) {
   const draw = (hover = -1) => {
     const { c, W, H } = setup(canvas);
     const accent = css('--accent'), muted = css('--muted'), grid = css('--grid'), surface = css('--surface');
@@ -64,13 +64,23 @@ export function lineChart(canvas, points, { fmt = (v) => String(Math.round(v)) }
     c.beginPath(); c.strokeStyle = accent; c.lineWidth = 2.5; c.lineJoin = 'round'; c.lineCap = 'round';
     xy.forEach(([px, py], i) => (i ? c.lineTo(px, py) : c.moveTo(px, py)));
     c.stroke();
-    // dots
+    // dots (hollow rings like a scoreboard) + optional value labels
     xy.forEach(([px, py], i) => {
       if (points.length > 40 && i !== hover && i !== xy.length - 1) return;
-      c.beginPath(); c.arc(px, py, i === hover ? 6 : 3.5, 0, Math.PI * 2);
-      c.fillStyle = i === hover ? surface : accent; c.fill();
-      if (i === hover) { c.lineWidth = 3; c.strokeStyle = accent; c.stroke(); }
+      const r = i === hover ? 7 : hollow && points.length <= 24 ? 5.5 : 3.5;
+      c.beginPath(); c.arc(px, py, r, 0, Math.PI * 2);
+      if (hollow || i === hover) { c.fillStyle = surface; c.fill(); c.lineWidth = i === hover ? 3 : 2.5; c.strokeStyle = accent; c.stroke(); }
+      else { c.fillStyle = accent; c.fill(); }
     });
+    if (labels && points.length <= 14) {
+      c.font = '11px -apple-system, system-ui, sans-serif'; c.fillStyle = muted; c.textAlign = 'center';
+      xy.forEach(([px, py], i) => {
+        if (i === hover) return;
+        const below = i % 2 === 1 && py + 22 < H - pad.b;
+        c.fillText(fmt(points[i].y), Math.min(Math.max(px, 18), W - 18), below ? py + 19 : Math.max(py - 10, 10));
+      });
+      c.textAlign = 'left';
+    }
     // tooltip
     const hi2 = hover >= 0 ? hover : -1;
     if (hi2 >= 0) {
