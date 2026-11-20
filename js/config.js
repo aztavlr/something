@@ -8,4 +8,10 @@ export const CONFIG = {
   crewSalt: 'ironlog-crew-v1:',
   crewHash: '38fe4c4002441a28dffa0907c66b8edd63cfac00d27fc1f355a3002c3d497f09',
   version: '2.0.0',
+  // Crew sync (Supabase). From Supabase -> Project Settings -> API keys.
+  // Leave both '' to keep everything on-device only.
+  supabaseUrl: '',
+  // The *publishable* (or legacy "anon public") key. It is meant to be public.
+  // NEVER put the secret / service_role key here.
+  supabaseKey: '',
 };
