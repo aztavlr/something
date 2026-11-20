@@ -1,0 +1,105 @@
+// Home dashboard: weekly goal ring, streak, next routine, activity heatmap, muscle split, recent PRs.
+import { state, workoutsInWeek, streakWeeks, workoutStats, fmtVol, prIndex, exById, setText, nextRoutine, routineLastDone, dayCounts, weekOf, isWorkSet } from '../store.js';
+import { MUSCLE_COLORS } from '../data.js';
+import { esc, greeting, fmtRel, fmtDur, fmtClock, fmtDate } from '../util.js';
+import { appbar, icon, on, rerender } from '../ui.js';
+import { ring, heatmap } from '../charts.js';
+import { showInstallBanner, showInstallSheet } from '../gate.js';
+
+const BANNER_KEY = 'ironlog:hideInstall';
+
+export function muscleSets(workouts) {
+  const m = {};
+  for (const w of workouts) for (const ex of w.exercises) {
+    const mu = exById(ex.exId).muscle;
+    m[mu] = (m[mu] || 0) + ex.sets.filter(isWorkSet).length;
+  }
+  return Object.entries(m).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+}
+
+export function muscleBars(entries) {
+  const max = Math.max(1, ...entries.map(([, n]) => n));
+  return `<div class="mbars">${entries.map(([mu, n]) => `
+    <div class="mbar"><span>${esc(mu)}</span><div class="mbar-track"><div class="mbar-fill" style="width:${(n / max) * 100}%;background:${MUSCLE_COLORS[mu] || 'var(--accent)'}"></div></div><b>${n}</b></div>`).join('')}</div>`;
+}
+
+function recentPRs(n) {
+  const idx = prIndex(), out = [];
+  for (const w of state.workouts) for (const p of idx.get(w.id) || []) out.push({ ...p, t: w.start });
+  return out.sort((a, b) => b.t - a.t).slice(0, n);
+}
+
+export function renderHome(root) {
+  const s = state.settings, p = state.profile;
+  const week = workoutsInWeek(), goal = s.weeklyGoal || 3, done = week.length;
+  const weekVol = week.reduce((a, w) => a + workoutStats(w).vol, 0);
+  const weekTime = week.reduce((a, w) => a + ((w.end || w.start) - w.start), 0);
+  const streak = streakWeeks();
+  const next = nextRoutine();
+  const prs = recentPRs(5);
+  const muscles = muscleSets(week);
+  let hideBanner = false;
+  try { hideBanner = !!localStorage.getItem(BANNER_KEY); } catch (e) { /* ignore */ }
+  const first = (p.name || '').trim().split(/\s+/)[0];
+  const goalMsg = done >= goal ? 'Weekly goal smashed! 🎉' : `${goal - done} more to hit your goal`;
+
+  const live = state.active ? `
+    <button class="live-banner" data-act="go" data-tab="train">
+      <span class="live-dot"></span>
+      <span class="grow"><strong>${esc(state.active.name)}</strong><span>${state.active.editing ? 'Editing' : `In progress · ${fmtClock((Date.now() - state.active.start) / 1000)}`}</span></span>
+      ${icon('right', 'chev')}
+    </button>` : '';
+
+  const hero = state.active ? '' : next ? `
+    <div class="hero-card">
+      <div class="hero-kicker">Up next</div>
+      <h2>${esc(next.name)}</h2>
+      <p>${next.items.length} exercises${routineLastDone(next.id) ? ` · last done ${esc(fmtRel(routineLastDone(next.id)).toLowerCase())}` : ' · not done yet'}</p>
+      <button class="btn block" data-act="start-routine" data-id="${next.id}">${icon('play')} Start workout</button>
+    </div>` : `
+    <div class="hero-card">
+      <div class="hero-kicker">Ready when you are</div>
+      <h2>Let's train 💪</h2>
+      <p>Pick a ready-made program or jump straight into an empty workout.</p>
+      <div class="btn-row"><button class="btn" data-act="programs">Programs</button><button class="btn" data-act="start-empty">Quick start</button></div>
+    </div>`;
+
+  root.innerHTML = `
+    ${appbar(`${esc(greeting())}${first ? `, ${esc(first)}` : ''}`, `<button class="avatar sm" data-act="go" data-tab="profile" aria-label="Profile">${esc(p.avatar || '💪')}</button>`, esc(fmtDate(Date.now(), { weekday: 'long', month: 'long', day: 'numeric' })))}
+    <div class="col">
+      ${live}
+      ${showInstallBanner() && !hideBanner ? `
+        <div class="install-banner">
+          <span class="row-ic">${icon('phone')}</span>
+          <button class="grow" data-act="install-help" style="background:none;border:0;padding:0;text-align:left;color:inherit"><strong>Add to your home screen</strong><div class="muted" style="font-size:13.5px">Full-screen and works offline</div></button>
+          <button class="icon-btn plain" data-act="hide-install" aria-label="Dismiss">${icon('x')}</button>
+        </div>` : ''}
+      <div class="card goal">
+        ${ring(done / goal, { center: `${done}/${goal}`, sub: 'this week' })}
+        <div class="goal-stats">
+          <div class="goal-stat"><div class="gi fire">${icon('flame')}</div><div><strong>${streak} week${streak === 1 ? '' : 's'}</strong><span>Streak</span></div></div>
+          <div class="goal-stat"><div class="gi vol">${icon('weight')}</div><div><strong>${fmtVol(weekVol)}</strong><span>Lifted this week</span></div></div>
+          <div class="goal-stat"><div class="gi time">${icon('clock')}</div><div><strong>${fmtDur(weekTime)}</strong><span>${esc(goalMsg)}</span></div></div>
+        </div>
+      </div>
+      ${hero}
+    </div>
+    <div class="sec"><h2>Activity</h2><span class="muted" style="font-size:14px">${state.workouts.length} workout${state.workouts.length === 1 ? '' : 's'}</span></div>
+    <div class="card">
+      ${heatmap(dayCounts(), weekOf(Date.now()), 18)}
+      <div class="hm-legend">Less <i class="hm"></i><i class="hm l1"></i><i class="hm l2"></i><i class="hm l3"></i> More</div>
+    </div>
+    <div class="sec"><h2>Sets this week</h2></div>
+    <div class="card">${muscles.length ? muscleBars(muscles) : '<p class="muted" style="margin:0">Finish a workout to see which muscles you trained.</p>'}</div>
+    <div class="sec"><h2>Recent PRs</h2>${prs.length ? '<button class="link" data-act="go" data-tab="progress">See progress</button>' : ''}</div>
+    ${prs.length ? `<div class="list">${prs.map((x) => `
+      <button class="row" data-act="open-exercise" data-id="${x.exId}">
+        <span class="row-ic" style="background:rgba(251,191,36,.15);color:var(--gold)">${icon('trophy')}</span>
+        <span class="row-main"><div class="row-title">${esc(exById(x.exId).name)}</div><div class="row-sub">${esc(setText(x.type, x.set))}</div></span>
+        <span class="row-end">${esc(fmtRel(x.t))}</span>
+      </button>`).join('')}</div>`
+    : '<div class="card"><p class="muted" style="margin:0">Beat your best set on any exercise and it shows up here. 🏆</p></div>'}`;
+}
+
+on('install-help', () => showInstallSheet());
+on('hide-install', () => { try { localStorage.setItem(BANNER_KEY, '1'); } catch (e) { /* ignore */ } rerender(); });
