@@ -9,7 +9,7 @@ export const MI = 1.609344; // km per mile
 
 export const DEFAULT_SETTINGS = {
   unit: 'kg', rest: 90, autoRest: true, sound: true, vibrate: true, wakeLock: true,
-  showRpe: false, weeklyGoal: 3, weekStart: 1, theme: 'dark', accent: 'gold', bar: 20, onboarded: false, sex: '',
+  showRpe: false, weeklyGoal: 3, weekStart: 1, theme: 'dark', accent: 'gold', bar: 20, onboarded: false, sex: '', trainDays: null,
 };
 
 function fresh() {
@@ -18,7 +18,7 @@ function fresh() {
     profile: { name: '', handle: '', bio: '', avatar: '💪', photo: '', created: Date.now() },
     settings: { ...DEFAULT_SETTINGS },
     exercises: DEFAULT_EXERCISES.map((e) => ({ ...e })),
-    routines: [], workouts: [], body: [], active: null,
+    routines: [], workouts: [], body: [], checkins: [], excused: [], active: null,
   };
 }
 
@@ -32,6 +32,8 @@ function normalize(d) {
     routines: Array.isArray(d.routines) ? d.routines : [],
     workouts: Array.isArray(d.workouts) ? d.workouts : [],
     body: Array.isArray(d.body) ? d.body : [],
+    checkins: Array.isArray(d.checkins) ? d.checkins : [],
+    excused: Array.isArray(d.excused) ? d.excused : [],
     active: d.active || null,
   };
 }
@@ -71,9 +73,39 @@ function load() {
 
 export let state = load();
 
+/** Functions called after every successful save (e.g. the cloud backup scheduler). */
+export const saveHooks = new Set();
+export let lastSaved = 0;
+let dirty = false;
 export function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)); return true; }
+  try { localStorage.setItem(KEY, JSON.stringify(state)); }
   catch (e) { console.warn('save failed', e); return false; }
+  dirty = false;
+  lastSaved = Date.now();
+  saveHooks.forEach((fn) => { try { fn(); } catch (e) { /* ignore */ } });
+  return true;
+}
+/** Mark in-memory changes that will be saved shortly (e.g. while typing). */
+export const markDirty = () => { dirty = true; };
+/** Save now only if something is waiting to be saved (used when the app is closed or hidden). */
+export const flushDirty = () => (dirty ? save() : true);
+
+// Keep several open tabs/windows of the app in sync: when another one saves, adopt its data.
+export const externalChangeHooks = new Set();
+if (typeof window !== 'undefined') window.addEventListener('storage', (e) => {
+  if (e.key !== KEY || !e.newValue) return;
+  try {
+    state = normalize(JSON.parse(e.newValue));
+    dirty = false;
+    externalChangeHooks.forEach((fn) => { try { fn(); } catch (err) { /* ignore */ } });
+  } catch (err) { /* ignore malformed */ }
+});
+/** Replace everything on this phone with restored data (from a cloud backup). */
+export function replaceState(data) {
+  const s = normalize(data);
+  s.settings.onboarded = true;
+  state = s;
+  return save();
 }
 try { if (!localStorage.getItem(KEY)) save(); } catch (e) { /* storage unavailable */ }
 

@@ -5,12 +5,13 @@
 import { CONFIG } from './config.js';
 import { sha256 } from './sha256.js';
 import { crewCode } from './gate.js';
-import { state, workoutStats, prIndex, exById, streakWeeks, dayCounts, weekOf, isWorkSet, setScore } from './store.js';
+import { state, workoutStats, prIndex, exById, streakWeeks, dayCounts, weekOf, isWorkSet, setScore, saveHooks, replaceState } from './store.js';
+import { streaks } from './attend.js';
 import { strengthProfile, badgeCollection, badgeTotal } from './gamify.js';
 import { getPhoto, setPhoto, shrink } from './photos.js';
 import { addDays, ymd, handleOf, agoText } from './util.js';
 
-const ME_KEY = 'ironlog:member', CACHE_KEY = 'ironlog:crewCache', Q_KEY = 'ironlog:syncQ', BACKFILL_KEY = 'ironlog:backfilled';
+const ME_KEY = 'ironlog:member', CACHE_KEY = 'ironlog:crewCache', Q_KEY = 'ironlog:syncQ', BACKFILL_KEY = 'ironlog:backfilled', BACKUP_AT = 'ironlog:lastBackup';
 const norm = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? d; } catch (e) { return d; } };
 const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* full */ } };
@@ -45,9 +46,9 @@ export function me() {
 const crewKey = () => sha256(`ironlog-data-v1:${norm(crewCode())}`);
 const keyHash = () => sha256(me().secret);
 
-async function api(path, { method = 'GET', body, prefer } = {}) {
+async function api(path, { method = 'GET', body, prefer, secret } = {}) {
   const key = CONFIG.supabaseKey;
-  const headers = { apikey: key, 'x-crew': crewKey(), 'x-member': me().secret, Accept: 'application/json' };
+  const headers = { apikey: key, 'x-crew': crewKey(), 'x-member': secret || me().secret, Accept: 'application/json' };
   if (!key.startsWith('sb_')) headers.Authorization = `Bearer ${key}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (prefer) headers.Prefer = prefer;
@@ -71,16 +72,17 @@ export function myStats() {
     volume += s.vol; sets += s.sets; reps += s.reps; dur += s.dur;
     if (w.start >= wk) weekVolume += s.vol;
   }
-  const sp = strengthProfile();
+  const sp = strengthProfile(), gs = streaks();
   const from = addDays(wk, -19 * 7);
   return {
     workouts: state.workouts.length, volume: Math.round(volume), weekVolume: Math.round(weekVolume), week: wk,
     sets, reps, hours: Math.round((dur / 36e5) * 10) / 10, streak: streakWeeks(),
+    gymStreak: gs.current, bestStreak: gs.best,
     strength: Math.round(sp.avg * 10) / 10,
     muscles: Object.fromEntries(Object.entries(sp.muscles).map(([m, v]) => [m, Math.round(v.score)])),
     badges: badgeTotal(badgeCollection()), prs: [...prIndex().values()].reduce((a, l) => a + l.length, 0),
     last: state.workouts.reduce((a, w) => Math.max(a, w.start), 0),
-    days: [...dayCounts().keys()].filter((t) => t >= from).map(ymd),
+    days: [...new Set([...dayCounts().keys()].map(ymd).concat(state.checkins || []))].filter((d) => d >= ymd(from)),
   };
 }
 
@@ -110,7 +112,7 @@ async function postRow(w, crew, kh) {
 }
 
 // ---------- Queue & flush ----------
-const q = () => read(Q_KEY, { profile: false, up: [], del: [] });
+const q = () => read(Q_KEY, { profile: false, backup: false, up: [], del: [] });
 export function queueProfile() { const x = q(); x.profile = true; write(Q_KEY, x); }
 export function queueWorkout(id) { const x = q(); x.up = [...new Set([...x.up, id])]; x.del = x.del.filter((d) => d !== id); x.profile = true; write(Q_KEY, x); }
 export function queueDelete(id) { const x = q(); x.del = [...new Set([...x.del, id])]; x.up = x.up.filter((d) => d !== id); x.profile = true; write(Q_KEY, x); }
@@ -155,6 +157,18 @@ async function flushOnce() {
     const recent = state.workouts.slice().sort((a, b) => b.start - a.start).slice(0, 20).map((w) => w.id);
     update((x) => { x.up = [...new Set([...x.up, ...recent])]; });
     write(BACKFILL_KEY, true);
+  }
+  if (q().backup) {
+    update((x) => { x.backup = false; });
+    try {
+      const data = JSON.parse(JSON.stringify(state));
+      const json = JSON.stringify(data);
+      await api('backups?on_conflict=member_id', {
+        method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal',
+        body: [{ member_id: me().id, crew, key_hash: kh, data, size: json.length, updated_at: new Date().toISOString() }],
+      });
+      write(BACKUP_AT, Date.now());
+    } catch (e) { update((x) => { x.backup = true; }); throw e; }
   }
   for (const id of q().up) {
     update((x) => { x.up = x.up.filter((y) => y !== id); });
@@ -235,6 +249,47 @@ export async function toggleProp(postId) {
   write(CACHE_KEY, c);
   return !mine;
 }
+
+// ---------- Backup & restore ----------
+export const lastBackup = () => read(BACKUP_AT, 0);
+/** The restore key is this phone's secret, grouped for readability. Treat it like a password. */
+export const restoreKey = () => me().secret.match(/.{1,6}/g).join('-').toUpperCase();
+const cleanKey = (k) => String(k || '').toLowerCase().replace(/[^0-9a-f]/g, '');
+
+let backupTimer = null;
+export function queueBackup(delay = 15000) {
+  if (!cloudEnabled()) return;
+  update((x) => { x.backup = true; });
+  clearTimeout(backupTimer);
+  backupTimer = setTimeout(() => flush(), delay);
+}
+export async function backupNow() { queueBackup(0); clearTimeout(backupTimer); return flush(); }
+
+/** Looks up the backup for a restore key. Resolves {member_id, data, size, updated_at} or null. */
+export async function findBackup(key) {
+  const secret = cleanKey(key);
+  if (secret.length < 32) throw new Error('That key is too short. Copy the whole key.');
+  const rows = await api(`backups?select=member_id,data,size,updated_at&key_hash=eq.${sha256(secret)}`, { secret });
+  return rows && rows[0] ? { ...rows[0], secret } : null;
+}
+/** Replace this phone's data with a backup and take over that phone's identity. */
+export async function applyBackup(b) {
+  // This phone may already have joined the crew as a temporary empty member: remove it.
+  const old = me();
+  if (old.id !== b.member_id && cloudEnabled()) {
+    try { await api(`members?id=eq.${encodeURIComponent(old.id)}`, { method: 'DELETE' }); } catch (e) { /* not fatal */ }
+  }
+  if (!replaceState(b.data)) return false;
+  write(ME_KEY, { id: b.member_id, secret: b.secret });
+  write(BACKFILL_KEY, true);
+  write(BACKUP_AT, Date.parse(b.updated_at) || Date.now());
+  write(Q_KEY, { profile: true, backup: false, up: [], del: [] });
+  return true;
+}
+
+// Every saved change schedules a backup (when the crew database is connected).
+saveHooks.add(() => queueBackup());
+document.addEventListener('visibilitychange', () => { if (document.hidden && cloudEnabled() && q().backup) { clearTimeout(backupTimer); flush(); } });
 
 // Retry queued changes when the connection comes back.
 window.addEventListener('online', () => { flush(); });

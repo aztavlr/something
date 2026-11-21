@@ -1,6 +1,6 @@
 // Live workout logger: sets, rest timer, PR detection, finish summary.
 import {
-  state, save, exById, COLS, toInput, fromInput, setReady, setScore, isWorkSet, bestScore, lastSession,
+  state, save, markDirty, flushDirty, exById, COLS, toInput, fromInput, setReady, setScore, isWorkSet, bestScore, lastSession,
   newExEntry, blankSet, finishActive, workoutStats, fmtW, fmtVol, kgToDisp, kmToDisp, wUnit, dUnit, setText,
 } from '../store.js';
 import { esc, fmtClock, fmtDur, fmtNum, fmtDate, fmtBig } from '../util.js';
@@ -104,7 +104,7 @@ export function renderLogger(root) {
 
 // ---------- Inputs ----------
 let saveTimer;
-const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 300); };
+const saveSoon = () => { markDirty(); clearTimeout(saveTimer); saveTimer = setTimeout(flushDirty, 300); };
 document.addEventListener('input', (e) => {
   const t = e.target;
   if (!t.classList || !t.classList.contains('set-in') || !state.active) return;
@@ -123,7 +123,7 @@ document.addEventListener('keydown', (e) => {
   const next = all[all.indexOf(e.target) + 1];
   if (next) next.focus(); else e.target.blur();
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden && state.active) save(); syncWake(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushDirty(); syncWake(); });
 
 const at = (el) => {
   const a = state.active, ex = a?.exercises[+el.dataset.ei];

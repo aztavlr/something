@@ -1,5 +1,5 @@
 // Entry point: access check → install guide → onboarding → app. Router, tab bar, global events.
-import { state } from './store.js';
+import { state, flushDirty, externalChangeHooks } from './store.js';
 import { $, fmtClock, isStandalone } from './util.js';
 import { app, actions, on, go, icon, applyTheme, closeAllSheets, sheetOpen, hideToast } from './ui.js';
 import { checkAccess, renderLock, renderInstallGuide, installSeen } from './gate.js';
@@ -12,11 +12,12 @@ import { renderProgress } from './views/progress.js';
 import { renderProfile } from './views/profile.js';
 import { renderSettings } from './views/settings.js';
 import { renderCrew } from './views/crew.js';
+import { renderStreak } from './views/streak.js';
 import { resumeRest, syncWake } from './views/logger.js';
 import { cloudEnabled, flush, pullCrew, onCrewUpdate, queueProfile } from './cloud.js';
 
-const VIEWS = { home: renderHome, crew: renderCrew, train: renderTrain, history: renderHistory, progress: renderProgress, profile: renderProfile, settings: renderSettings };
-const TAB_OF = { settings: 'profile', history: 'profile' };
+const VIEWS = { home: renderHome, crew: renderCrew, train: renderTrain, history: renderHistory, progress: renderProgress, profile: renderProfile, settings: renderSettings, streak: renderStreak };
+const TAB_OF = { settings: 'profile', history: 'profile', streak: 'home' };
 const view = $('#view'), tabbar = $('#tabbar');
 
 function renderTabbar() {
@@ -77,6 +78,8 @@ function boot(opts = {}) {
   syncWake();
   checkIncomingShare();
   if (cloudEnabled()) { queueProfile(); pullCrew(); }
+  // Ask the browser to never auto-clear this app's data (granted for installed apps).
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 }
 boot();
 
@@ -85,7 +88,13 @@ onCrewUpdate(() => {
   const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
   if (!tabbar.hidden && !sheetOpen() && !typing && (app.tab === 'crew' || app.tab === 'home')) render();
 });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && cloudEnabled()) flush(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) flushDirty(); // write anything still pending before the phone suspends the app
+  else if (cloudEnabled()) flush();
+});
+window.addEventListener('pagehide', () => flushDirty());
+// Another tab of the app saved: show its data here too.
+externalChangeHooks.add(() => { if (!tabbar.hidden && !sheetOpen()) render(); });
 
 // Re-check incoming share links when the app is already open (e.g. link opened in same tab)
 window.addEventListener('hashchange', () => { if (!tabbar.hidden && !sheetOpen()) checkIncomingShare(); });

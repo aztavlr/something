@@ -67,6 +67,17 @@ create table if not exists public.props (
 );
 create index if not exists props_crew_idx on public.props (crew);
 
+-- Full private backup of each phone's data (only that phone's secret can read it back).
+create table if not exists public.backups (
+  member_id uuid primary key,
+  crew text not null,
+  key_hash text not null,
+  data jsonb not null,
+  size integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+create index if not exists backups_key_idx on public.backups (key_hash);
+
 -- ---------- Row level security ----------
 alter table public.members enable row level security;
 alter table public.posts enable row level security;
@@ -93,8 +104,15 @@ begin
   end loop;
 end $$;
 
+-- Backups: owner only (not even the crew can read them). Restoring on a new phone uses the restore key.
+alter table public.backups enable row level security;
+drop policy if exists "owner only" on public.backups;
+create policy "owner only" on public.backups for all to anon, authenticated
+  using (key_hash = public.member_hash() and key_hash <> '')
+  with check (crew = public.req_header('x-crew') and crew <> '' and key_hash = public.member_hash() and key_hash <> '');
+
 grant usage on schema public to anon, authenticated;
-grant select, insert, update, delete on public.members, public.posts, public.props to anon, authenticated;
+grant select, insert, update, delete on public.members, public.posts, public.props, public.backups to anon, authenticated;
 grant execute on function public.req_header(text), public.member_hash() to anon, authenticated;
 
 -- Tell the API about the new tables right away.

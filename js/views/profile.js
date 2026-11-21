@@ -1,5 +1,8 @@
 // Profile: avatar, bio, streak rosette, dot heatmap, and Feed / Stats / Advanced tabs.
-import { state, save, dayCounts, weekOf, prIndex, workoutStats, kgToDisp, wUnit } from '../store.js';
+import { state, save, weekOf, prIndex, workoutStats, kgToDisp, wUnit } from '../store.js';
+import { gymDaySet } from '../attend.js';
+import { fromYmd } from '../util.js';
+const gymDayCounts = () => new Map([...gymDaySet()].map((d) => [fromYmd(d), 1]));
 import { AVATARS } from '../data.js';
 import { streakBadge, badgeCollection, badgeTotal, totalVolume } from '../gamify.js';
 import { rosette, dotHeatmap } from '../art.js';
@@ -21,7 +24,7 @@ function feedTab() {
   const ws = state.workouts.slice().sort((a, b) => b.start - a.start);
   if (!ws.length) return '<div class="card center"><p class="muted" style="margin:0">Your finished workouts show up here as posts.</p><button class="btn primary mt" data-act="go" data-tab="train">Start training</button></div>';
   const idx = prIndex();
-  return `<div class="row-flex between" style="margin-bottom:2px"><span class="muted" style="font-size:14px;font-weight:700">${ws.length} workouts</span><button class="link" data-act="go" data-tab="history">${icon('calendar')} Calendar</button></div>
+  return `<div class="row-flex between" style="margin-bottom:2px"><span class="muted" style="font-size:14px;font-weight:700">${ws.length} workouts</span><button class="link" data-act="open-streak">${icon('calendar')} Calendar</button></div>
     ${ws.slice(0, feedLimit).map((w) => postHTML(localPost(w, (idx.get(w.id) || []).length))).join('')}
     ${ws.length > feedLimit ? '<button class="btn block mt" data-act="feed-more">Show more</button>' : ''}`;
 }
@@ -64,9 +67,9 @@ export function renderProfile(root) {
         ${p.bio ? `<p class="pf-bio">${esc(p.bio)}</p>` : '<p class="pf-bio muted" style="font-size:14px">Add a bio with Edit.</p>'}
         <div class="pf-follow"><span><b>${crewN}</b>Crew</span><span><b>${badges}</b>Badges</span><span><b>${prs}</b>PRs</span></div>
       </div>
-      <button class="pf-badge" data-act="streak-info" aria-label="Streak">${rosette(sb.roman, 96, sb.level === 0)}<span>${sb.weeks} week streak</span></button>
+      <button class="pf-badge" data-act="open-streak" aria-label="Gym streak">${rosette(sb.roman, 96, sb.level === 0)}<span>${sb.days} day streak</span></button>
     </div>
-    ${dotHeatmap(dayCounts(), weekOf(Date.now()), state.settings.weekStart, 20)}
+    <div data-act="open-streak" role="button" style="cursor:pointer">${dotHeatmap(gymDayCounts(), weekOf(Date.now()), state.settings.weekStart, 20)}</div>
     <div class="utabs">${[['feed', 'Feed'], ['stats', 'Stats'], ['advanced', 'Advanced']].map(([k, l]) => `<button class="${k === ptab ? 'on' : ''}" data-act="ptab" data-k="${k}">${l}</button>`).join('')}</div>
     <div id="pf-body">${ptab === 'feed' ? feedTab() : ptab === 'stats' ? statsTab() : advancedTab()}</div>`;
   if (ptab === 'feed') hydratePhotos(root);
@@ -88,16 +91,6 @@ on('atab', (el) => { atab = el.dataset.k; rerender(); });
 on('feed-more', () => { feedLimit += 15; rerender(); });
 export function showAdvanced(tab) { ptab = 'advanced'; atab = tab; }
 export function showStats(tab) { ptab = 'stats'; stab = tab; }
-
-on('streak-info', () => {
-  const sb = streakBadge();
-  const steps = [[1, 'I'], [4, 'II'], [8, 'III'], [16, 'IV'], [26, 'V'], [52, 'VI']];
-  openSheet(`
-    <div class="center">${rosette(sb.roman, 120, sb.level === 0)}
-      <div class="sheet-title" style="margin-top:8px">${sb.weeks} week streak</div>
-      <p class="muted" style="margin:-6px 0 16px">Train at least once every week to keep it going. ${sb.next ? `${sb.next - sb.weeks} more week${sb.next - sb.weeks > 1 ? 's' : ''} to level ${['', 'I', 'II', 'III', 'IV', 'V', 'VI'][sb.level + 1]}.` : 'Max level. Legend.'}</p></div>
-    <div class="list">${steps.map(([n, r], i) => `<div class="row"><span class="row-ic" style="${sb.level > i ? '' : 'filter:grayscale(1);opacity:.5'}">🔥</span><span class="row-main"><div class="row-title">Level ${r}</div><div class="row-sub">${n} week${n > 1 ? 's' : ''} in a row</div></span>${sb.level > i ? icon('check') : ''}</div>`).join('')}</div>`);
-});
 
 on('edit-profile', () => {
   const p = state.profile;

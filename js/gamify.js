@@ -1,6 +1,7 @@
 // Gamification logic: weekly challenges, badge collection, streak level, landmark milestones, strength standards.
 import { state, exById, workoutStats, prIndex, weekOf, streakWeeks, e1rm, isWorkSet } from './store.js';
 import { addDays } from './util.js';
+import { streaks } from './attend.js';
 import { LANDMARKS, WEEK_TIERS, CHALLENGES, STANDARDS } from './gamedata.js';
 
 const C = Object.fromEntries(CHALLENGES.map((c) => [c.id, c]));
@@ -66,10 +67,11 @@ export function badgeCollection() {
 export const badgeTotal = (list = badgeCollection()) => list.reduce((a, b) => a + b.count, 0);
 
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
-export function streakBadge(weeks = streakWeeks()) {
-  const steps = [1, 4, 8, 16, 26, 52];
-  const level = steps.filter((n) => weeks >= n).length;
-  return { weeks, level, roman: ROMAN[level], next: steps[level] || null };
+export const STREAK_STEPS = [3, 7, 14, 30, 60, 100];
+/** Rosette level from the gym-day streak (3, 7, 14, 30, 60, 100 days). */
+export function streakBadge(days = streaks().current) {
+  const level = STREAK_STEPS.filter((n) => days >= n).length;
+  return { days, level, roman: ROMAN[level], next: STREAK_STEPS[level] || null };
 }
 
 export function milestoneInfo(total = totalVolume()) {

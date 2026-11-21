@@ -15,7 +15,7 @@ const METRICS = {
   volume: { label: 'Total volume', get: (s) => s.volume || 0, fmt: volText },
   week: { label: 'This week', get: (s) => (s.week === weekOf(Date.now()) ? s.weekVolume || 0 : 0), fmt: volText },
   workouts: { label: 'Workouts', get: (s) => s.workouts || 0, fmt: (n) => `${n}` },
-  streak: { label: 'Week streak', get: (s) => s.streak || 0, fmt: (n) => `${n} wk` },
+  streak: { label: 'Gym streak', get: (s) => s.gymStreak || 0, fmt: (n) => `${n} day${n === 1 ? '' : 's'}` },
   strength: { label: 'Strength score', get: (s) => s.strength || 0, fmt: (n) => fmtNum(n, 1) },
   badges: { label: 'Badges', get: (s) => s.badges || 0, fmt: (n) => `${n}` },
 };
@@ -104,12 +104,12 @@ on('member', (el) => {
   if (!m) return;
   const s = m.stats || {};
   const days = new Map((s.days || []).map((d) => [fromYmd(d), 1]));
-  const sb = streakBadge(s.streak || 0);
+  const sb = streakBadge(s.gymStreak || 0);
   const muscles = Object.fromEntries(Object.entries(s.muscles || {}).map(([k, v]) => [k, { score: v }]));
   openSheet(`
     <div class="pf-top" style="margin-top:0">${avatarHTML(m, 'lg')}
       <div class="grow"><h2 style="margin:0;font-size:22px">${esc(m.name || 'Athlete')}</h2><div class="pf-handle">@${esc(m.handle || 'athlete')}</div></div>
-      <div class="pf-badge">${rosette(sb.roman, 72, sb.level === 0)}<span>${sb.weeks} wk</span></div></div>
+      <div class="pf-badge">${rosette(sb.roman, 72, sb.level === 0)}<span>${sb.days} day streak</span></div></div>
     ${m.bio ? `<p class="pf-bio">${esc(m.bio)}</p>` : ''}
     <div class="stat-grid mt">
       <div class="stat-card"><span>${icon('dumbbell')}Workouts</span><strong>${s.workouts || 0}</strong></div>

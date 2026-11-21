@@ -1,5 +1,5 @@
 // Home dashboard: weekly goal ring, streak, next routine, activity heatmap, muscle split, recent PRs.
-import { state, workoutsInWeek, streakWeeks, workoutStats, fmtVol, prIndex, exById, setText, nextRoutine, routineLastDone, weekOf, isWorkSet, kgToDisp, wUnit } from '../store.js';
+import { state, workoutsInWeek, workoutStats, fmtVol, prIndex, exById, setText, nextRoutine, routineLastDone, weekOf, isWorkSet, kgToDisp, wUnit } from '../store.js';
 import { MUSCLE_COLORS } from '../data.js';
 import { esc, greeting, fmtRel, fmtDur, fmtClock, fmtDate } from '../util.js';
 import { appbar, icon, on, rerender, go } from '../ui.js';
@@ -9,6 +9,7 @@ import { weekChallenges, milestoneInfo, totalVolume } from '../gamify.js';
 import { cloudEnabled, crewCache, me } from '../cloud.js';
 import { avatarHTML, volText } from './feed.js';
 import { showAdvanced, showStats } from './profile.js';
+import { streakCard } from './streak.js';
 
 function challengesCard() {
   const list = weekChallenges().sort((a, b) => a.done - b.done);
@@ -74,7 +75,8 @@ export function renderHome(root) {
   const week = workoutsInWeek(), goal = s.weeklyGoal || 3, done = week.length;
   const weekVol = week.reduce((a, w) => a + workoutStats(w).vol, 0);
   const weekTime = week.reduce((a, w) => a + ((w.end || w.start) - w.start), 0);
-  const streak = streakWeeks();
+  const mStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+  const monthN = state.workouts.filter((w) => w.start >= mStart).length;
   const next = nextRoutine();
   const prs = recentPRs(5);
   const muscles = muscleSets(week);
@@ -114,10 +116,11 @@ export function renderHome(root) {
           <button class="grow" data-act="install-help" style="background:none;border:0;padding:0;text-align:left;color:inherit"><strong>Add to your home screen</strong><div class="muted" style="font-size:13.5px">Full-screen and works offline</div></button>
           <button class="icon-btn plain" data-act="hide-install" aria-label="Dismiss">${icon('x')}</button>
         </div>` : ''}
+      ${streakCard()}
       <div class="card goal">
         ${ring(done / goal, { center: `${done}/${goal}`, sub: 'this week' })}
         <div class="goal-stats">
-          <div class="goal-stat"><div class="gi fire">${icon('flame')}</div><div><strong>${streak} week${streak === 1 ? '' : 's'}</strong><span>Streak</span></div></div>
+          <div class="goal-stat"><div class="gi fire">${icon('calendar')}</div><div><strong>${monthN} workout${monthN === 1 ? '' : 's'}</strong><span>This month</span></div></div>
           <div class="goal-stat"><div class="gi vol">${icon('weight')}</div><div><strong>${fmtVol(weekVol)}</strong><span>Lifted this week</span></div></div>
           <div class="goal-stat"><div class="gi time">${icon('clock')}</div><div><strong>${fmtDur(weekTime)}</strong><span>${esc(goalMsg)}</span></div></div>
         </div>

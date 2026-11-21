@@ -17,6 +17,20 @@ IronLog is a members-only workout tracker. Anyone you send the **invite link** t
 - A streak rosette (levels I–VI), plus a dot calendar of every training day
 - **Feed** (your workouts as posts), **Stats** (weekly challenges, badges, volume) and **Advanced** (strength map, milestones)
 
+**Gym streak**
+- One tap on Home, "I went to the gym today", checks you in. Logging a workout also counts
+- Pick your training days. Missing one breaks the streak; rest days never do, and a workout on a rest day still counts
+- A full calendar marks every day: **gym** (gold ✓), **missed** (red ✕), **rest** (dim), or **excused** (sick or travel, which doesn't break the streak)
+- Your current and best streak, attendance % per month, a mini calendar of every month since you started, and a ✓/✕ strip for this week on Home
+- Tap any past day to check in or excuse it
+
+**Memory**
+- Auto-save: every set, note, check-in and setting is saved the moment you enter it, even if the app is closed mid-workout
+- The app asks the phone to protect its storage, so it won't be cleared to free up space (installed apps)
+- Two open copies of the app stay in sync, and closing one never overwrites the other
+- **Cloud backup** (with the crew database): a private, automatic backup of everything a few seconds after each change. Only your phone can read it
+- **Restore key**: in Settings. Paste it on a new phone to get every workout back
+
 **Gamification**
 - **Weekly challenges**: volume tiers (Ox → Rhino → Elephant → T-Rex → Whale → Kraken), On Target, Record Breaker, Well Rounded, Rep Machine and Early Bird. Each one you finish adds a badge to your collection
 - **Milestones**: your lifetime volume compared to real things, from a grand piano and a T-Rex to a Boeing 737, the London Eye and the Titanic
@@ -41,7 +55,7 @@ IronLog is a members-only workout tracker. Anyone you send the **invite link** t
 
 ## Connect the crew database (one time, free)
 1. Create a free project at [supabase.com](https://supabase.com)
-2. Open **SQL Editor → New query**, paste everything in [`supabase/setup.sql`](supabase/setup.sql), and click **Run**
+2. Open **SQL Editor → New query**, paste everything in [`supabase/setup.sql`](supabase/setup.sql), and click **Run**. It's safe to run again after updates, which adds any new tables (for example the private backups table)
 3. In **Project Settings → API Keys**, copy the **Project URL** and the **publishable** key (or the legacy "anon public" key). Put them in `js/config.js` as `supabaseUrl` and `supabaseKey`
 4. **Never** put the secret / `service_role` key in the app
 
