@@ -10,8 +10,8 @@ export const CONFIG = {
   version: '2.2.0',
   // Crew sync (Supabase). From Supabase -> Project Settings -> API keys.
   // Leave both '' to keep everything on-device only.
-  supabaseUrl: '',
+  supabaseUrl: 'https://qnjqsgnpedwvewmaywyz.supabase.co',
   // The *publishable* (or legacy "anon public") key. It is meant to be public.
   // NEVER put the secret / service_role key here.
-  supabaseKey: '',
+  supabaseKey: 'sb_publishable_lBWUBgA1_WWopdjksPeDVA_Tu4KwRFn',
 };
